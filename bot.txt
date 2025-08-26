@@ -1,0 +1,98 @@
+import discord
+from discord.ext import commands
+import os
+from dotenv import load_dotenv
+
+# Charger le token depuis le fichier .env
+load_dotenv()
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True  # nécessaire pour inviter les membres
+
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Dictionnaire pour stocker les salons de chaque membre
+residences = {}
+
+@bot.event
+async def on_ready():
+    print(f"{bot.user} est connecté et prêt !")
+
+# Commande pour créer une résidence
+@bot.command()
+async def creer_residence(ctx, *, nom: str):
+    guild = ctx.guild
+    auteur = ctx.author
+
+    if auteur.id in residences:
+        await ctx.send("Tu as déjà une résidence !")
+        return
+
+    # Détecter la catégorie du salon où la commande est utilisée
+    categorie = ctx.channel.category
+
+    # Créer le salon textuel privé dans la catégorie détectée
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        auteur: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+    salon = await guild.create_text_channel(nom, overwrites=overwrites, category=categorie)
+    residences[auteur.id] = salon.id
+    await ctx.send(f"Résidence créée : {salon.mention} dans la catégorie {categorie.name if categorie else 'Aucune'}")
+
+# Commande pour inviter un membre
+@bot.command()
+async def inviter(ctx, membre: discord.Member):
+    auteur = ctx.author
+    if auteur.id not in residences:
+        await ctx.send("Tu n'as pas de résidence !")
+        return
+
+    salon = bot.get_channel(residences[auteur.id])
+    await salon.set_permissions(membre, read_messages=True, send_messages=True)
+    await ctx.send(f"{membre.mention} a été invité dans ta résidence !")
+
+# Commande pour expulser un membre
+@bot.command()
+async def expulser(ctx, membre: discord.Member):
+    auteur = ctx.author
+    if auteur.id not in residences:
+        await ctx.send("Tu n'as pas de résidence !")
+        return
+
+    salon = bot.get_channel(residences[auteur.id])
+    await salon.set_permissions(membre, overwrite=None)
+    await ctx.send(f"{membre.mention} a été expulsé de ta résidence !")
+
+# Commande pour supprimer sa résidence
+@bot.command()
+async def supprimer_residence(ctx):
+    auteur = ctx.author
+    if auteur.id not in residences:
+        await ctx.send("Tu n'as pas de résidence !")
+        return
+
+    salon = bot.get_channel(residences[auteur.id])
+    await salon.delete()
+    del residences[auteur.id]
+    await ctx.send("Ta résidence a été supprimée !")
+
+# Commande pour lister toutes les résidences
+@bot.command()
+async def lister_residences(ctx):
+    if not residences:
+        await ctx.send("Aucune résidence n'a été créée pour l'instant.")
+        return
+
+    message = "Résidences existantes :\n"
+    for user_id, channel_id in residences.items():
+        user = ctx.guild.get_member(user_id)
+        channel = bot.get_channel(channel_id)
+        if user and channel:
+            message += f"- {user.display_name} : {channel.name}\n"
+    await ctx.send(message)
+
+# Lancer le bot
+bot.run(TOKEN)
